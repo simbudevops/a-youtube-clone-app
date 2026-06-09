@@ -1,31 +1,41 @@
 pipeline {
     agent any
+
     tools {
         jdk 'jdk21'
         nodejs 'node16'
     }
+
     environment {
         SCANNER_HOME = tool 'sonar-scanner'
     }
+
     stages {
+
         stage('clean workspace') {
             steps {
                 cleanWs()
             }
         }
+
         stage('Checkout from Git') {
             steps {
                 git branch: 'main', url: 'https://github.com/simbudevops/a-youtube-clone-app.git'
             }
         }
+
         stage("Sonarqube Analysis") {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
-                    sh '''$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=YOUTUBE-CICD \
-                    -Dsonar.projectKey=youtube-cicd'''
+                    sh '''
+                    $SCANNER_HOME/bin/sonar-scanner \
+                    -Dsonar.projectName=YOUTUBE-CICD \
+                    -Dsonar.projectKey=youtube-cicd
+                    '''
                 }
             }
         }
+
         stage("Quality Gate") {
             steps {
                 script {
@@ -33,31 +43,51 @@ pipeline {
                 }
             }
         }
+
         stage('Install Dependencies') {
             steps {
-                sh "npm install"
+                sh 'npm install'
             }
         }
+
         stage('TRIVY FS SCAN') {
             steps {
-                sh "trivy fs . > trivyfs.txt"
+                sh 'trivy fs . > trivyfs.txt'
             }
         }
+
         stage("Docker Build & Push") {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'dockerhub') {
-                        sh "docker build -t youtube-clone ."
-                        sh "docker tag youtube-clone simbudevops/youtube-clone:latest "
-                        sh "docker push simbudevops/youtube-clone:latest "
+                        sh 'docker build -t youtube-clone .'
+                        sh 'docker tag youtube-clone simbudevops/youtube-clone:latest'
+                        sh 'docker push simbudevops/youtube-clone:latest'
                     }
                 }
             }
         }
-        stage("TRIVY") {
+
+        stage("TRIVY IMAGE SCAN") {
             steps {
-                sh "trivy image simbudevops/youtube-clone:latest > trivyimage.txt"
+                sh 'trivy image simbudevops/youtube-clone:latest > trivyimage.txt'
             }
+        }
+    }
+
+    post {
+        always {
+            emailext(
+                attachLog: true,
+                subject: "${currentBuild.result}: Job '${env.JOB_NAME}'",
+                body: """
+                    Project: ${env.JOB_NAME}<br/>
+                    Build Number: ${env.BUILD_NUMBER}<br/>
+                    URL: ${env.BUILD_URL}<br/>
+                """,
+                to: 'your-email@gmail.com',
+                attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
+            )
         }
     }
 }
